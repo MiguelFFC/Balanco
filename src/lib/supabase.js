@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Os valores vêm do arquivo .env (no computador) ou das
-// "Environment Variables" da Vercel (no site publicado).
+// Os valores vêm do arquivo .env e são gravados no site na hora do
+// "npm run build" / "npm run hostinger".
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_KEY;
 

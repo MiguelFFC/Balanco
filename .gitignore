@@ -3,5 +3,5 @@ dist
 .env
 .env.local
 .env.*.local
-.vercel
 .DS_Store
+site-hostinger.zip

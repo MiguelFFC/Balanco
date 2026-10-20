@@ -30,8 +30,9 @@ export default function App() {
           <h1>⚙️ Falta configurar</h1>
           <p>
             Não encontrei a URL e a chave do Supabase. Crie o arquivo <code>.env</code> (copiando o
-            <code> .env.example</code>) ou cadastre as variáveis <code>VITE_SUPABASE_URL</code> e
-            <code> VITE_SUPABASE_KEY</code> na Vercel. Veja o passo a passo no README.
+            <code> .env.example</code>), preencha <code>VITE_SUPABASE_URL</code> e
+            <code> VITE_SUPABASE_KEY</code> e gere o site de novo com <code>npm run hostinger</code>.
+            Veja o passo a passo no README.
           </p>
         </div>
       </div>
@@ -75,7 +76,7 @@ function Painel({ email }) {
     <div className="app">
       <header className="topo">
         <div className="marca">
-          <img src="/favicon.svg" alt="" width="32" height="32" />
+          <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" width="32" height="32" />
           <span>Balanço Açaí</span>
         </div>
         <nav className="abas" aria-label="Áreas">

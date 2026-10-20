@@ -21,7 +21,7 @@ export default function Login() {
   return (
     <div className="tela-centro tela-login">
       <form className="cartao-login" onSubmit={entrar} noValidate>
-        <img src="/favicon.svg" alt="" width="56" height="56" />
+        <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" width="56" height="56" />
         <h1>Balanço Açaí</h1>
         <p className="sub">Entre para ver o caixa da sua loja</p>
         <Aviso tipo="erro">{erro}</Aviso>

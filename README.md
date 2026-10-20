@@ -16,7 +16,7 @@ Os dados ficam salvos na nuvem (Supabase), e você acessa pelo computador ou pel
 3. [Criar seu usuário e bloquear cadastros de estranhos](#3-criar-seu-usuário-de-login)
 4. [Pegar a URL e a chave do Supabase](#4-pegar-a-url-e-a-chave)
 5. [Rodar no seu computador](#5-rodar-no-seu-computador)
-6. [Publicar na Vercel (ter um link)](#6-publicar-na-vercel)
+6. [Publicar na Hostinger (ter um link)](#6-publicar-na-hostinger)
 7. [Como usar cada aba](#7-como-usar-cada-aba)
 8. [Dúvidas comuns](#8-dúvidas-comuns)
 
@@ -78,7 +78,7 @@ O painel precisa de duas informações do Supabase. Elas ficam em **variáveis d
 
 ## 5. Rodar no seu computador
 
-Você só precisa fazer isso uma vez para testar (depois pode usar direto pelo link da Vercel).
+Você só precisa fazer isso uma vez para testar (depois pode usar direto pelo seu link na Hostinger).
 
 ### 5.1 Instalar o Node.js
 1. Acesse **https://nodejs.org** e baixe a versão **LTS**.
@@ -113,27 +113,50 @@ O primeiro baixa as dependências (só precisa uma vez, demora 1–2 min). O seg
 
 Para desligar, volte ao terminal e aperte **Ctrl + C**.
 
-## 6. Publicar na Vercel
+## 6. Publicar na Hostinger
 
-Assim você terá um link (ex.: `https://balanco-acai.vercel.app`) para abrir no celular e no computador de qualquer lugar.
+O painel é um site "estático" (só arquivos HTML, CSS e JavaScript), então funciona em **qualquer plano de hospedagem da Hostinger**, inclusive o mais simples. Você vai gerar os arquivos no seu computador e enviá-los pelo Gerenciador de Arquivos.
 
-1. Garanta que o código está no seu GitHub (este repositório).
-2. Acesse **https://vercel.com** e clique em **Sign Up** → **Continue with GitHub** (plano *Hobby*, gratuito).
-3. No painel da Vercel, clique em **Add New… → Project**.
-4. Na lista de repositórios, encontre **balanco** e clique em **Import**. (Se ele não aparecer, clique em *Adjust GitHub App Permissions* e libere o acesso ao repositório.)
-5. A Vercel detecta sozinha que é um projeto **Vite**. Não mexa em *Build Command* nem *Output Directory*.
-6. Abra a seção **Environment Variables** e adicione as duas variáveis (as mesmas do `.env`):
+> Por que gerar no computador? A URL e a chave do Supabase (do `.env`) são gravadas dentro dos arquivos do site no momento em que ele é gerado. Por isso, faça o passo 5 (com o `.env` preenchido) antes.
 
-   | Key (nome) | Value (valor) |
-   |---|---|
-   | `VITE_SUPABASE_URL` | `https://abcdefghijk.supabase.co` |
-   | `VITE_SUPABASE_KEY` | `sb_publishable_xxxxxxxx` |
+### 6.1 Gerar o pacote do site
+No terminal, dentro da pasta do projeto, rode:
 
-7. Clique em **Deploy** e espere ~1 minuto. Aparece uma tela de parabéns com o **link do seu painel**. 🎉
-8. **No celular**: abra o link no navegador e use *"Adicionar à tela inicial"* (Android: menu ⋮; iPhone: botão Compartilhar) para ter um ícone igual a um app.
+```bash
+npm run hostinger
+```
 
-> Sempre que um novo código for enviado ao GitHub (branch principal), a Vercel publica a nova versão sozinha.
-> Se você mudar as variáveis depois, vá em *Project → Settings → Environment Variables*, altere e depois em *Deployments* clique nos **três pontinhos → Redeploy**.
+Isso cria o arquivo **`site-hostinger.zip`** na pasta do projeto, já pronto para enviar. (Ele contém o `index.html`, o ícone e a pasta `assets`.)
+
+### 6.2 Escolher onde o painel vai ficar
+Escolha **uma** das opções:
+
+- **Subdomínio (recomendado)** — ex.: `painel.seudominio.com.br`. Assim o site da loja (se você tiver um) continua intacto.
+  1. No **hPanel** da Hostinger, vá em **Sites** → **Gerenciar** (no seu site/domínio).
+  2. No menu da esquerda, abra **Domínios → Subdomínios**.
+  3. Digite `painel` e clique em **Criar**. Anote a pasta que ele mostra (geralmente `public_html/painel`).
+- **Domínio inteiro** — se o domínio for só para o painel, use a própria pasta `public_html`.
+- **Subpasta** — ex.: `seudominio.com.br/painel`: crie uma pasta `painel` dentro de `public_html`.
+
+### 6.3 Enviar os arquivos
+1. No hPanel, em **Sites → Gerenciar**, abra **Arquivos → Gerenciador de Arquivos**.
+2. Entre na pasta escolhida no passo 6.2 (ex.: `public_html/painel` ou `public_html`).
+   - Se for a `public_html` e tiver um arquivo `default.php` (página padrão da Hostinger), apague-o.
+3. Clique no ícone de **Upload** (seta para cima) e envie o **`site-hostinger.zip`**.
+4. Clique com o botão direito no zip → **Extrair** (Extract) → confirme a pasta atual (deixe o campo de destino como `.` ou em branco).
+5. Confira: o `index.html` e a pasta `assets` devem estar **direto** nessa pasta (não dentro de outra subpasta). Depois pode apagar o `.zip`.
+
+### 6.4 Ativar o HTTPS (cadeado)
+1. No hPanel, abra **Segurança → SSL** e verifique se o domínio/subdomínio está com SSL **Ativo** (a Hostinger dá o SSL grátis; se não estiver, clique em **Instalar SSL**).
+2. Pode levar alguns minutos para um subdomínio novo funcionar.
+
+### 6.5 Abrir
+Acesse `https://painel.seudominio.com.br` (ou o endereço que você escolheu) e faça login. 🎉
+
+**No celular**: abra o link no navegador e use *"Adicionar à tela inicial"* (Android: menu ⋮; iPhone: botão Compartilhar) para ter um ícone igual a um app.
+
+### Atualizar o site no futuro
+Sempre que o código mudar (ou se você trocar a URL/chave no `.env`): baixe a versão nova, rode `npm run hostinger` de novo, e no Gerenciador de Arquivos **apague a pasta `assets` antiga e o `index.html`**, envie o novo zip e extraia. Os seus **dados não são afetados**: eles ficam no Supabase, não na Hostinger.
 
 ## 7. Como usar cada aba
 
@@ -171,9 +194,10 @@ Na primeira vez que você entra, o painel cria categorias padrão (Insumos, Emba
 
 ## 8. Dúvidas comuns
 
-- **"Falta configurar" ao abrir o painel** → o `.env` (no computador) ou as *Environment Variables* (na Vercel) não foram preenchidos. Na Vercel, depois de adicionar, faça *Redeploy*.
+- **"Falta configurar" ao abrir o painel** → o `.env` (no computador) estava vazio quando você rodou `npm run hostinger`. Preencha o `.env`, gere o zip de novo e reenvie para a Hostinger.
 - **"E-mail ou senha incorretos"** → confira o usuário em *Authentication → Users* no Supabase.
 - **Erro falando de tabela ou "relation does not exist"** → o SQL do passo 2 não foi rodado (ou foi rodado em outro projeto).
+- **Página em branco ou "404" na Hostinger** → o `index.html` precisa estar direto na pasta do domínio/subdomínio, junto com a pasta `assets` (não dentro de uma pasta `dist` ou `site-hostinger`).
 - **O projeto gratuito "dormiu"** → no plano Free, o Supabase **pausa projetos sem uso por 7 dias**. Se acontecer, entre em supabase.com, abra o projeto e clique em **Restore project**. Usando o painel toda semana, isso não acontece.
 - **Backup**: exporte o CSV de vendas e compras de vez em quando e guarde no seu Drive.
 
@@ -182,4 +206,5 @@ Na primeira vez que você entra, o painel cria categorias padrão (Insumos, Emba
 ### Para quem for mexer no código
 - Tecnologias: React + Vite, Supabase (`@supabase/supabase-js`), Recharts.
 - Estrutura: `src/components` (telas), `src/lib` (cálculos, formatação, CSV, acesso a dados), `supabase/schema.sql` (banco, RLS e funções de dados de exemplo).
-- Comandos: `npm run dev` (desenvolvimento), `npm run build` (gera a pasta `dist`).
+- Comandos: `npm run dev` (desenvolvimento), `npm run build` (gera a pasta `dist`), `npm run hostinger` (gera a `dist` e o `site-hostinger.zip`).
+- O build usa `base: './'` (caminhos relativos), então o site funciona na raiz do domínio ou em qualquer subpasta.
