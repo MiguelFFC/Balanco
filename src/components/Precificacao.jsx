@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { supabase, mensagemErro } from '../lib/supabase';
 import { useDados } from '../lib/dados';
 import { moeda, numero, porcentagem, lerNumero, paraCampo } from '../lib/format';
-import { UNIDADES_COMPRA, unidadeCompra, custoUnitario, custoProduto, precoSugerido, analisarPreco } from '../lib/calculos';
+import { UNIDADES_COMPRA, unidadeCompra, custoUnitario, custosProduto, precoSugerido, analisarPreco, formatarQtd, situacaoEstoque } from '../lib/calculos';
 import { Aviso, Campo, CampoNumero, Modal, Vazio } from './ui';
 
 export default function Precificacao() {
@@ -88,7 +88,8 @@ function Produtos({ setMsg }) {
       {!produtos.length ? <Vazio>Nenhum produto cadastrado. Cadastre os insumos primeiro e depois os produtos.</Vazio> : (
         <div className="produtos">
           {produtos.map((p) => {
-            const custo = custoProduto(p.id, composicao, insumosPorId);
+            const c = custosProduto(p, composicao, insumosPorId);
+            const custo = c.medio;
             const preco = Number(p.preco_venda);
             const a = analisarPreco(preco, custo, 0);
             const ai = analisarPreco(preco, custo, tIfood);
@@ -105,12 +106,17 @@ function Produtos({ setMsg }) {
                 </div>
                 <dl className="produto-numeros">
                   <div><dt>Preço de venda</dt><dd>{moeda(preco)}</dd></div>
-                  <div><dt>Custo</dt><dd>{moeda(custo)}</dd></div>
+                  <div><dt>{c.qtdAcomp ? 'Custo médio' : 'Custo'}</dt><dd>{moeda(custo)}</dd></div>
                   <div><dt>Lucro</dt><dd className={a.lucro >= 0 ? 'positivo' : 'negativo'}>{moeda(a.lucro)}</dd></div>
                   <div><dt>Margem</dt><dd className={a.margem >= 0 ? 'positivo' : 'negativo'}>{porcentagem(a.margem)}</dd></div>
                   <div><dt>Lucro no iFood ({numero(tIfood)}%)</dt><dd className={ai.lucroComTaxa >= 0 ? 'positivo' : 'negativo'}>{moeda(ai.lucroComTaxa)} <small>({porcentagem(ai.margemComTaxa)})</small></dd></div>
                   <div><dt>Lucro no cartão ({numero(tCartao)}%)</dt><dd className={ac.lucroComTaxa >= 0 ? 'positivo' : 'negativo'}>{moeda(ac.lucroComTaxa)} <small>({porcentagem(ac.margemComTaxa)})</small></dd></div>
                 </dl>
+                {c.totalAcomps > 0 && (
+                  <p className="nota nota-produto">
+                    Base {moeda(c.fixo)} + {c.qtdAcomp} acompanhamento(s) inclusos · custo vai de {moeda(c.minimo)} a {moeda(c.maximo)}
+                  </p>
+                )}
                 <button type="button" className="link" onClick={() => setAberto(aberto === p.id ? null : p.id)}>
                   {aberto === p.id ? '▾ Esconder' : '▸ Ver'} composição ({itens.length} insumos)
                 </button>
@@ -118,11 +124,11 @@ function Produtos({ setMsg }) {
                   <table className="tabela-comp">
                     <thead><tr><th>Insumo</th><th>Qtd.</th><th>Custo</th></tr></thead>
                     <tbody>
-                      {itens.map((c) => {
+                      {[...itens].sort((a, b) => (a.tipo === 'acompanhamento') - (b.tipo === 'acompanhamento')).map((c) => {
                         const i = insumosPorId[c.insumo_id];
                         return (
                           <tr key={c.id}>
-                            <td>{i?.nome}</td>
+                            <td>{i?.nome} {c.tipo === 'acompanhamento' && <span className="etiqueta etq-acomp">acomp.</span>}</td>
                             <td>{numero(c.quantidade, 3)} {i?.unidade_base}</td>
                             <td>{moeda(Number(c.quantidade) * custoUnitario(i))}</td>
                           </tr>
@@ -155,17 +161,21 @@ function FormProduto({ produto, onSalvo, onCancelar }) {
   const [nome, setNome] = useState(produto.nome || '');
   const [preco, setPreco] = useState(paraCampo(produto.preco_venda ?? ''));
   const [linhas, setLinhas] = useState(() =>
-    novo ? [] : composicao.filter((c) => c.produto_id === produto.id).map((c) => ({ insumo_id: String(c.insumo_id), quantidade: paraCampo(c.quantidade) }))
+    novo ? [] : composicao.filter((c) => c.produto_id === produto.id)
+      .map((c) => ({ insumo_id: String(c.insumo_id), quantidade: paraCampo(c.quantidade), tipo: c.tipo || 'fixo' }))
   );
+  const [qtdAcomp, setQtdAcomp] = useState(String(produto.qtd_acompanhamentos ?? 3));
   const [margem, setMargem] = useState('50');
   const [erros, setErros] = useState({});
   const [erroGeral, setErroGeral] = useState('');
   const [salvando, setSalvando] = useState(false);
 
-  const custo = linhas.reduce((s, l) => {
-    const q = lerNumero(l.quantidade);
-    return s + (q > 0 ? q * custoUnitario(insumosPorId[l.insumo_id]) : 0);
-  }, 0);
+  const custos = custosProduto(
+    { id: 'form', qtd_acompanhamentos: Math.max(0, Math.floor(lerNumero(qtdAcomp)) || 0) },
+    linhas.map((l) => ({ produto_id: 'form', insumo_id: Number(l.insumo_id), tipo: l.tipo, quantidade: lerNumero(l.quantidade) > 0 ? lerNumero(l.quantidade) : 0 })),
+    insumosPorId
+  );
+  const custo = custos.medio;
   const precoNum = lerNumero(preco);
   const a = analisarPreco(precoNum > 0 ? precoNum : 0, custo, Number(config?.taxa_ifood_pct ?? 0));
   const sugerido = precoSugerido(custo, lerNumero(margem));
@@ -174,7 +184,7 @@ function FormProduto({ produto, onSalvo, onCancelar }) {
   const usados = new Set(linhas.map((l) => l.insumo_id));
   const adicionar = () => {
     const livre = insumos.find((i) => !usados.has(String(i.id)));
-    if (livre) setLinhas((ls) => [...ls, { insumo_id: String(livre.id), quantidade: '' }]);
+    if (livre) setLinhas((ls) => [...ls, { insumo_id: String(livre.id), quantidade: '', tipo: 'fixo' }]);
   };
 
   async function salvar(e) {
@@ -184,6 +194,8 @@ function FormProduto({ produto, onSalvo, onCancelar }) {
     if (!(precoNum >= 0) || preco === '') er.preco = 'Informe um preço válido (não negativo).';
     linhas.forEach((l, i) => { if (!(lerNumero(l.quantidade) > 0)) er[`l${i}`] = 'Qtd. > 0'; });
     if (new Set(linhas.map((l) => l.insumo_id)).size !== linhas.length) er.linhas = 'Há insumos repetidos na composição.';
+    const nAcomp = lerNumero(qtdAcomp);
+    if (!(Number.isInteger(nAcomp) && nAcomp >= 0 && nAcomp <= 20)) er.qtdAcomp = 'Use um número inteiro de 0 a 20.';
     setErros(er);
     if (Object.keys(er).length) return;
 
@@ -191,18 +203,18 @@ function FormProduto({ produto, onSalvo, onCancelar }) {
     try {
       let id = produto.id;
       if (novo) {
-        const { data, error } = await supabase.from('produtos').insert({ nome: nome.trim(), preco_venda: precoNum }).select().single();
+        const { data, error } = await supabase.from('produtos').insert({ nome: nome.trim(), preco_venda: precoNum, qtd_acompanhamentos: nAcomp }).select().single();
         if (error) throw error;
         id = data.id;
       } else {
-        const { error } = await supabase.from('produtos').update({ nome: nome.trim(), preco_venda: precoNum }).eq('id', id);
+        const { error } = await supabase.from('produtos').update({ nome: nome.trim(), preco_venda: precoNum, qtd_acompanhamentos: nAcomp }).eq('id', id);
         if (error) throw error;
         const { error: e2 } = await supabase.from('produto_insumos').delete().eq('produto_id', id);
         if (e2) throw e2;
       }
       if (linhas.length) {
         const { error } = await supabase.from('produto_insumos').insert(
-          linhas.map((l) => ({ produto_id: id, insumo_id: Number(l.insumo_id), quantidade: lerNumero(l.quantidade) }))
+          linhas.map((l) => ({ produto_id: id, insumo_id: Number(l.insumo_id), quantidade: lerNumero(l.quantidade), tipo: l.tipo }))
         );
         if (error) throw error;
       }
@@ -224,9 +236,15 @@ function FormProduto({ produto, onSalvo, onCancelar }) {
       <Campo rotulo="Preço de venda" erro={erros.preco}>
         <CampoNumero prefixo="R$" value={preco} onChange={setPreco} placeholder="0,00" />
       </Campo>
+      <Campo rotulo="Acompanhamentos inclusos no preço" erro={erros.qtdAcomp} dica="Quantos o cliente pode escolher sem pagar a mais (ex.: 3).">
+        <CampoNumero value={qtdAcomp} onChange={setQtdAcomp} inputMode="numeric" />
+      </Campo>
 
       <div className="campo-largo">
         <span className="campo-rotulo">Composição (o que vai em 1 unidade)</span>
+        <span className="campo-dica">
+          <strong>Fixo</strong> = vai em todo pedido (açaí, copo, tampa, colher). <strong>Acompanhamento</strong> = só vai se o cliente escolher; informe a porção usada neste tamanho.
+        </span>
         {!insumos.length && <Vazio>Cadastre insumos primeiro (seção "Insumos" abaixo).</Vazio>}
         {linhas.map((l, idx) => {
           const i = insumosPorId[l.insumo_id];
@@ -237,6 +255,10 @@ function FormProduto({ produto, onSalvo, onCancelar }) {
                 {insumos.filter((x) => String(x.id) === l.insumo_id || !usados.has(String(x.id))).map((x) => (
                   <option key={x.id} value={x.id}>{x.nome}</option>
                 ))}
+              </select>
+              <select value={l.tipo} onChange={(e) => mudarLinha(idx, 'tipo', e.target.value)} aria-label="Tipo" className="comp-tipo">
+                <option value="fixo">Fixo</option>
+                <option value="acompanhamento">Acompanhamento</option>
               </select>
               <div className={erros[`l${idx}`] ? 'campo-erro' : ''}>
                 <CampoNumero sufixo={i?.unidade_base} value={l.quantidade} onChange={(v) => mudarLinha(idx, 'quantidade', v)} placeholder="Qtd." aria-label="Quantidade" />
@@ -254,7 +276,8 @@ function FormProduto({ produto, onSalvo, onCancelar }) {
       </div>
 
       <div className="campo-largo resumo-produto">
-        <div><span>Custo total</span><strong>{moeda(custo)}</strong></div>
+        <div><span>Custo fixo</span><strong>{moeda(custos.fixo)}</strong></div>
+        <div><span>Custo médio{custos.qtdAcomp ? ` (c/ ${custos.qtdAcomp} acomp.)` : ''}</span><strong>{moeda(custo)}</strong></div>
         <div><span>Lucro</span><strong className={a.lucro >= 0 ? 'positivo' : 'negativo'}>{moeda(a.lucro)}</strong></div>
         <div><span>Margem</span><strong>{porcentagem(a.margem)}</strong></div>
         <div><span>Lucro no iFood</span><strong className={a.lucroComTaxa >= 0 ? 'positivo' : 'negativo'}>{moeda(a.lucroComTaxa)}</strong></div>
@@ -285,7 +308,8 @@ function Calculadora() {
   const [custoManual, setCustoManual] = useState('');
   const [margem, setMargem] = useState('50');
 
-  const custo = fonte === 'manual' ? lerNumero(custoManual) : custoProduto(Number(fonte), composicao, insumosPorId);
+  const produtoSel = produtos.find((p) => String(p.id) === fonte);
+  const custo = fonte === 'manual' ? lerNumero(custoManual) : custosProduto(produtoSel, composicao, insumosPorId).medio;
   const m = lerNumero(margem);
   const valido = custo > 0 && m >= 0 && m < 100;
   const tIfood = Number(config?.taxa_ifood_pct ?? 0);
@@ -312,7 +336,7 @@ function Calculadora() {
             <CampoNumero prefixo="R$" value={custoManual} onChange={setCustoManual} placeholder="0,00" />
           </Campo>
         ) : (
-          <Campo rotulo="Custo do produto"><div className="valor-fixo">{moeda(custo)}</div></Campo>
+          <Campo rotulo="Custo médio do produto"><div className="valor-fixo">{moeda(custo)}</div></Campo>
         )}
         <Campo rotulo="Margem desejada" erro={margem !== '' && !(m >= 0 && m < 100) ? 'Use um valor entre 0% e 99%.' : undefined}>
           <CampoNumero sufixo="%" value={margem} onChange={setMargem} />
@@ -355,7 +379,7 @@ function textoEmbalagem(i) {
 }
 
 function Insumos({ setMsg }) {
-  const { insumos, composicao, produtos, atualizar } = useDados();
+  const { insumos, composicao, produtos, estoquePorId, atualizar } = useDados();
   const [editando, setEditando] = useState(null);
   const usoPorInsumo = useMemo(() => {
     const m = {};
@@ -390,6 +414,7 @@ function Insumos({ setMsg }) {
                 <span className="item-titulo">{i.nome}</span>
                 <span className="item-detalhe">
                   <span>{textoEmbalagem(i)} por {moeda(i.valor_pago)}</span>
+                  <SeloEstoque insumo={i} estoque={estoquePorId[i.id]?.estoque} />
                   <span className="etiqueta">{usoPorInsumo[i.id] ? `usado em ${usoPorInsumo[i.id]} produto(s)` : 'não usado'}</span>
                 </span>
               </div>
@@ -424,6 +449,7 @@ function FormInsumo({ insumo, usos, onSalvo, onCancelar }) {
   const [valor, setValor] = useState(paraCampo(insumo.valor_pago ?? ''));
   const [qtd, setQtd] = useState(insumo.id ? paraCampo(Number(insumo.quantidade_embalagem) / u0.fator) : '');
   const [unidade, setUnidade] = useState(u0.id);
+  const [minimo, setMinimo] = useState(insumo.id && Number(insumo.estoque_minimo) ? paraCampo(Number(insumo.estoque_minimo) / u0.fator) : '');
   const [erros, setErros] = useState({});
   const [erroGeral, setErroGeral] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -441,9 +467,11 @@ function FormInsumo({ insumo, usos, onSalvo, onCancelar }) {
     if (!(v >= 0) || valor === '') er.valor = 'Informe um valor válido (não negativo).';
     if (!(q > 0)) er.qtd = 'A quantidade deve ser maior que zero.';
     if (mudouBase) er.unidade = `Este insumo é usado em produtos medidos em "${insumo.unidade_base}". Escolha uma unidade do mesmo tipo.`;
+    const m = minimo === '' ? 0 : lerNumero(minimo);
+    if (!(m >= 0)) er.minimo = 'Informe um número (não negativo) ou deixe vazio.';
     setErros(er);
     if (Object.keys(er).length) return;
-    const registro = { nome: nome.trim(), valor_pago: v, quantidade_embalagem: q * u.fator, unidade_compra: u.id, unidade_base: u.base };
+    const registro = { nome: nome.trim(), valor_pago: v, quantidade_embalagem: q * u.fator, unidade_compra: u.id, unidade_base: u.base, estoque_minimo: m * u.fator };
     setSalvando(true);
     const { error } = novo
       ? await supabase.from('insumos').insert(registro)
@@ -471,6 +499,9 @@ function FormInsumo({ insumo, usos, onSalvo, onCancelar }) {
           </select>
         </div>
       </Campo>
+      <Campo rotulo="Estoque mínimo (aviso de reposição)" erro={erros.minimo} dica="Opcional. Quando o estoque ficar abaixo disso, o painel avisa.">
+        <CampoNumero sufixo={u.id} value={minimo} onChange={setMinimo} placeholder="Ex.: 5" />
+      </Campo>
       <div className="campo-largo previa">
         {previa ? <>Custo calculado: <strong>{previa}</strong></> : 'Preencha valor e quantidade para ver o custo por unidade.'}
         {usos > 0 && <div className="nota">Usado em {usos} produto(s): o custo deles será recalculado automaticamente.</div>}
@@ -480,5 +511,15 @@ function FormInsumo({ insumo, usos, onSalvo, onCancelar }) {
         <button className="btn btn-primario" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar insumo'}</button>
       </div>
     </form>
+  );
+}
+
+export function SeloEstoque({ insumo, estoque }) {
+  if (estoque === undefined || estoque === null) return null;
+  const sit = situacaoEstoque(Number(estoque), Number(insumo.estoque_minimo));
+  return (
+    <span className={`etiqueta etq-estoque-${sit.id}`}>
+      Estoque: {formatarQtd(estoque, insumo.unidade_base)}{sit.id !== 'ok' ? ` · ${sit.nome}` : ''}
+    </span>
   );
 }

@@ -5,7 +5,8 @@ Os dados ficam salvos na nuvem (Supabase), e você acessa pelo computador ou pel
 
 - **Balanço**: faturamento, gastos, taxas, lucro líquido, margem e gráficos por período.
 - **Lançamentos**: registro de vendas e compras, com busca, filtro por período, edição, exclusão e exportação em CSV (Excel).
-- **Precificação**: insumos, ficha técnica dos produtos, custo automático, lucro com/sem taxa do iFood e cartão, e calculadora de preço sugerido.
+- **Precificação**: insumos, ficha técnica dos produtos (itens fixos + acompanhamentos), custo automático, lucro com/sem taxa do iFood e cartão, e calculadora de preço sugerido.
+- **Estoque**: saldo de cada insumo, que sobe com as compras e desce sozinho a cada venda, com aviso de reposição.
 
 ---
 
@@ -39,9 +40,10 @@ Os dados ficam salvos na nuvem (Supabase), e você acessa pelo computador ou pel
 2. Clique em **+ New query** (nova consulta).
 3. Abra o arquivo [`supabase/schema.sql`](supabase/schema.sql) deste projeto, **copie todo o conteúdo** e cole no editor.
 4. Clique em **Run** (ou Ctrl+Enter). Deve aparecer *"Success. No rows returned"*.
+5. Abra outra **New query**, cole o arquivo [`supabase/02_estoque_acompanhamentos.sql`](supabase/02_estoque_acompanhamentos.sql) e clique em **Run** de novo. Ele adiciona acompanhamentos nos pedidos e o controle de estoque.
    - Se aparecer um aviso pedindo confirmação sobre "operações destrutivas", pode confirmar: o script **não apaga** dados, apenas recria as regras de segurança.
 
-Pronto! Isso criou as tabelas `categorias`, `compras`, `vendas`, `insumos`, `produtos`, `produto_insumos` (composição) e `configuracoes`, já com **Row Level Security (RLS)** ligado: cada usuário logado só vê e altera os próprios dados, e quem não está logado não vê nada.
+Pronto! Isso criou as tabelas `categorias`, `compras`, `vendas`, `insumos`, `produtos`, `produto_insumos` (composição), `configuracoes`, `estoque_ajustes` e `venda_insumos` (consumo de cada venda), já com **Row Level Security (RLS)** ligado: cada usuário logado só vê e altera os próprios dados, e quem não está logado não vê nada.
 
 > Os **dados de exemplo** são criados automaticamente na primeira vez que você entrar no painel. Para apagá-los há o botão **"Limpar dados de exemplo"** no topo.
 
@@ -168,12 +170,15 @@ Sempre que o código mudar (ou se você trocar a URL/chave no `.env`): baixe a v
   - *Taxas pagas* = taxas de iFood/cartão das vendas
   - *Lucro líquido* = faturamento − gastos − taxas
   - *Margem de lucro* = lucro líquido ÷ faturamento
-- **Gráficos**: entradas x saídas por dia (ou por mês em períodos longos), gastos por categoria, vendas por canal e produtos mais vendidos. Passe o mouse (ou toque) nas barras para ver os valores.
+- **Gráficos**: entradas x saídas por dia (ou por mês em períodos longos), gastos por categoria, vendas por canal, produtos mais vendidos e **acompanhamentos mais pedidos**. Passe o mouse (ou toque) nas barras para ver os valores.
 
 ### 🧾 Lançamentos
 - Alterne entre **Vendas** e **Compras (gastos)** no botão do topo.
-- **+ Nova venda**: escolha um produto cadastrado e o **valor é preenchido sozinho** (preço × quantidade — dá para ajustar se deu desconto). Ao escolher **iFood** ou pagamento com **cartão**, a taxa em % é sugerida automaticamente (configure as % na aba Precificação). Você pode trocar a taxa para **R$** (valor fixo) ou **%**.
-- **+ Nova compra**: data, item, fornecedor, categoria, quantidade, unidade, valor total, forma de pagamento e observação. Para uma categoria nova, clique em **+ Nova** ao lado da lista.
+- **+ Nova venda**: escolha um produto cadastrado e toque nos **acompanhamentos** que o cliente pediu (aparece "2 de 3 inclusos"; se passar do incluso, o painel lembra de cobrar o extra). O **valor é preenchido sozinho** (preço × quantidade — dá para ajustar se deu desconto). Ao escolher **iFood** ou pagamento com **cartão**, a taxa em % é sugerida automaticamente (configure as % na aba Precificação). Você pode trocar a taxa para **R$** (valor fixo) ou **%**.
+- **+ Nova compra**: escolha o tipo:
+  - **📦 Insumo (vai pro estoque)**: escolha o insumo (ou **+ Novo insumo…** para cadastrar na hora), a quantidade e a unidade (ex.: 100 un de "Copo 500ml", 2 kg de "Leite em pó") e o valor. A quantidade **entra no estoque**. Deixe marcado *"Atualizar o preço do insumo"* para que o custo dos produtos acompanhe o último preço pago.
+  - **Outra despesa**: aluguel, luz, motoboy, gás… (texto livre, não mexe no estoque).
+  - Para uma categoria nova, clique em **+ Nova** ao lado da lista.
 - Use a **busca** e o **filtro de período** para achar lançamentos. ✏️ edita, 🗑️ exclui.
 - **⬇ Exportar CSV** baixa a lista que está na tela (já filtrada) num arquivo que o **Excel** abre direto, com acentos e vírgula decimal certinhos.
 - O sistema não deixa salvar valores negativos, quantidades zeradas ou campos obrigatórios vazios. Valores podem ser digitados com vírgula (ex.: `18,50`).
@@ -183,11 +188,19 @@ Sempre que o código mudar (ou se você trocar a URL/chave no `.env`): baixe a v
 2. **Insumos**: cadastre do jeito que você compra. Exemplos:
    - "Açaí (balde 10 kg)" → valor `180`, quantidade `10`, unidade `kg` → custo calculado: **R$ 18,00/kg · R$ 0,018/g**
    - "Copo 300ml (pct 100)" → valor `35`, quantidade `100`, unidade `unidade` → **R$ 0,35 por unidade**
-3. **Produtos**: clique em **+ Novo produto**, dê um nome (ex.: *Açaí 500ml*), o preço de venda e adicione os insumos com a quantidade usada em **uma unidade** do produto (em g, ml ou un — a unidade aparece ao lado do campo). Ex.: açaí 420 g, copo 1 un, tampa 1 un, colher 1 un, leite em pó 20 g…
+3. **Produtos**: clique em **+ Novo produto**. Informe quantos **acompanhamentos estão inclusos no preço** (ex.: 3). Na composição, marque cada insumo como **Fixo** (vai em todo pedido: açaí, copo, tampa, colher) ou **Acompanhamento** (só vai se o cliente escolher), com a porção usada naquele tamanho. O custo mostrado é o **custo médio** (fixo + a média dos acompanhamentos inclusos), e o cartão mostra também a faixa (do acompanhamento mais barato ao mais caro). Depois:, dê um nome (ex.: *Açaí 500ml*), o preço de venda e adicione os insumos com a quantidade usada em **uma unidade** do produto (em g, ml ou un — a unidade aparece ao lado do campo). Ex.: açaí 420 g, copo 1 un, tampa 1 un, colher 1 un, leite em pó 20 g…
    - O cartão de cada produto mostra **custo, lucro em R$, margem %, lucro no iFood e lucro no cartão** (já descontando a taxa).
    - Dentro do formulário há o atalho **"Quero margem de X%"** → mostra o preço sugerido e o botão *Usar*.
 4. **Atualizou o preço de um insumo?** Basta editar o insumo: **todos os produtos que usam ele são recalculados na hora** (o custo é sempre calculado com o preço atual).
 5. **Calculadora de preço sugerido**: escolha um produto (ou digite um custo), informe a margem desejada e veja o preço ideal para venda **sem taxa**, **no cartão** e **no iFood**.
+
+### 📦 Estoque
+- Mostra o saldo de cada insumo (em kg, L ou unidades). Os que estão **abaixo do mínimo** ou **zerados** aparecem primeiro, e a aba mostra um número de alerta.
+- **Como o saldo muda**: compra de insumo **soma**; cada venda **desconta** os itens fixos do produto + os acompanhamentos escolhidos, multiplicados pela quantidade. Ex.: 1 Açaí 500ml com granola e morango desconta 1 copo 500, 1 tampa 500, 1 colher, 420 g de açaí, 30 g de granola e 50 g de morango.
+- Editar ou excluir uma venda/compra **corrige o estoque** automaticamente.
+- **Ajustar**: use **Contei** (informe quanto tem de verdade; ótimo para lançar o estoque inicial), **Perda** (caiu, venceu) ou **Entrada** (chegou sem compra).
+- O **estoque mínimo** de cada insumo é configurado na aba Precificação → editar insumo.
+- O desconto usa a **ficha técnica** (quantidade planejada). Se a porção real for diferente, faça uma contagem de vez em quando para acertar.
 
 ### 🧹 Dados de exemplo
 Na primeira vez que você entra, o painel cria categorias padrão (Insumos, Embalagens, Limpeza, Aluguel/Contas, Entregas, Marketing, Outros) e alguns dados de exemplo (vendas, compras, insumos e 3 produtos). Quando quiser começar de verdade, clique em **Limpar dados de exemplo** no topo. As categorias e qualquer coisa que **você** cadastrou continuam lá.
@@ -205,6 +218,7 @@ Na primeira vez que você entra, o painel cria categorias padrão (Insumos, Emba
 
 ### Para quem for mexer no código
 - Tecnologias: React + Vite, Supabase (`@supabase/supabase-js`), Recharts.
-- Estrutura: `src/components` (telas), `src/lib` (cálculos, formatação, CSV, acesso a dados), `supabase/schema.sql` (banco, RLS e funções de dados de exemplo).
+- Estrutura: `src/components` (telas), `src/lib` (cálculos, formatação, CSV, acesso a dados), `supabase/schema.sql` + `supabase/02_estoque_acompanhamentos.sql` (banco, RLS, gatilho de consumo, view de estoque e dados de exemplo).
+- O consumo de cada venda é gravado pelo gatilho `vendas_consumo` na tabela `venda_insumos` (vale também para lançamentos feitos direto por SQL). O estoque é a view `estoque_insumos` = compras + ajustes − consumo.
 - Comandos: `npm run dev` (desenvolvimento), `npm run build` (gera a pasta `dist`), `npm run hostinger` (gera a `dist` e o `site-hostinger.zip`).
 - O build usa `base: './'` (caminhos relativos), então o site funciona na raiz do domínio ou em qualquer subpasta.

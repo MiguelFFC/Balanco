@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { supabase, mensagemErro } from '../lib/supabase';
 import { useDados } from '../lib/dados';
 import { useLancamentos } from '../lib/hooks';
 import { baixarCSV } from '../lib/csv';
 import { moeda, numero, dataBR, hojeISO, lerNumero, paraCampo, normalizar } from '../lib/format';
-import { CANAIS, FORMAS_PAGAMENTO, UNIDADES_LIVRES } from '../lib/calculos';
+import { CANAIS, FORMAS_PAGAMENTO, UNIDADES_LIVRES, UNIDADES_COMPRA, unidadesDaBase, unidadeCompra, formatarQtd } from '../lib/calculos';
 import { Aviso, Campo, CampoNumero, Carregando, FiltroPeriodo, Modal, Vazio, usePeriodo } from './ui';
 
 export default function Lancamentos() {
@@ -28,7 +28,7 @@ export default function Lancamentos() {
 /* ------------------------------------------------------------------ */
 
 function useLista(tabela, textoBusca) {
-  const { versao } = useDados();
+  const { versao, atualizar } = useDados();
   const p = usePeriodo('mes');
   const [busca, setBusca] = useState('');
   const dados = useLancamentos(tabela, p.inicio, p.fim, versao);
@@ -37,7 +37,8 @@ function useLista(tabela, textoBusca) {
     if (!termo) return dados.linhas;
     return dados.linhas.filter((l) => normalizar(textoBusca(l)).includes(termo));
   }, [busca, dados.linhas, textoBusca]);
-  return { p, busca, setBusca, ...dados, filtradas };
+  // Recarrega também cadastros e estoque, que mudam com vendas e compras
+  return { p, busca, setBusca, ...dados, recarregar: atualizar, filtradas };
 }
 
 async function excluir(tabela, id, recarregar, setMsg) {
@@ -65,9 +66,15 @@ function Barra({ l, rotuloNovo, onNovo, onExportar }) {
 /* VENDAS                                                               */
 /* ------------------------------------------------------------------ */
 
-const textoVenda = (v) => [v.produto_nome, v.canal, v.forma_pagamento, v.observacao].join(' ');
+const nomesAcomps = (v, insumosPorId) =>
+  (v.acompanhamentos || []).map((id) => insumosPorId[id]?.nome).filter(Boolean);
 
 function ListaVendas() {
+  const { insumosPorId } = useDados();
+  const textoVenda = useCallback(
+    (v) => [v.produto_nome, v.canal, v.forma_pagamento, v.observacao, ...nomesAcomps(v, insumosPorId)].join(' '),
+    [insumosPorId]
+  );
   const l = useLista('vendas', textoVenda);
   const [editando, setEditando] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -81,6 +88,7 @@ function ListaVendas() {
     baixarCSV(`vendas_${l.p.inicio}_a_${l.p.fim}.csv`, [
       { titulo: 'Data', valor: (v) => dataBR(v.data) },
       { titulo: 'Produto', valor: (v) => v.produto_nome },
+      { titulo: 'Acompanhamentos', valor: (v) => nomesAcomps(v, insumosPorId).join(', ') },
       { titulo: 'Quantidade', valor: (v) => Number(v.quantidade) },
       { titulo: 'Valor recebido (R$)', valor: (v) => Number(v.valor_recebido) },
       { titulo: 'Canal', valor: (v) => v.canal },
@@ -112,6 +120,9 @@ function ListaVendas() {
               <div className="item-principal">
                 <span className="item-data">{dataBR(v.data)}</span>
                 <span className="item-titulo">{numero(v.quantidade)}× {v.produto_nome}</span>
+                {nomesAcomps(v, insumosPorId).length > 0 && (
+                  <span className="item-acomps">+ {nomesAcomps(v, insumosPorId).join(', ')}</span>
+                )}
                 <span className="item-detalhe">
                   <span className={`etiqueta etq-${normalizar(v.canal)}`}>{v.canal}</span>
                   {v.forma_pagamento && <span>{v.forma_pagamento}</span>}
@@ -142,7 +153,7 @@ function ListaVendas() {
 }
 
 function FormVenda({ venda, onSalvo, onCancelar }) {
-  const { produtos, config } = useDados();
+  const { produtos, config, composicao, insumosPorId } = useDados();
   const novo = !venda.id;
   const [f, setF] = useState(() => ({
     data: venda.data || hojeISO(),
@@ -156,11 +167,22 @@ function FormVenda({ venda, onSalvo, onCancelar }) {
     forma_pagamento: venda.forma_pagamento || 'Pix',
     observacao: venda.observacao || '',
   }));
+  const [acomps, setAcomps] = useState(() => (venda.acompanhamentos || []).map(Number));
   const [erros, setErros] = useState({});
   const [salvando, setSalvando] = useState(false);
   const [erroGeral, setErroGeral] = useState('');
 
   const produtoSel = produtos.find((p) => String(p.id) === f.produto_id);
+  // Acompanhamentos que a ficha técnica do produto permite escolher
+  const opcoesAcomp = produtoSel
+    ? composicao
+        .filter((c) => c.produto_id === produtoSel.id && c.tipo === 'acompanhamento' && insumosPorId[c.insumo_id])
+        .map((c) => insumosPorId[c.insumo_id])
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    : [];
+  const acompsValidos = acomps.filter((id) => opcoesAcomp.some((i) => i.id === id));
+  const inclusos = Number(produtoSel?.qtd_acompanhamentos ?? 0);
+  const alternarAcomp = (id) => setAcomps((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
 
   // Sugere a taxa conforme canal e forma de pagamento
   function taxaPadrao(canal, forma) {
@@ -212,6 +234,7 @@ function FormVenda({ venda, onSalvo, onCancelar }) {
       taxa_valor: taxaNum,
       forma_pagamento: f.forma_pagamento,
       observacao: f.observacao.trim() || null,
+      acompanhamentos: f.produto_id === 'outro' ? [] : acompsValidos,
     };
     setSalvando(true);
     const { error } = novo
@@ -234,6 +257,29 @@ function FormVenda({ venda, onSalvo, onCancelar }) {
           <option value="outro">Outro (digitar)</option>
         </select>
       </Campo>
+      {opcoesAcomp.length > 0 && (
+        <div className="campo-largo">
+          <span className="campo-rotulo">
+            Acompanhamentos{' '}
+            <span className={acompsValidos.length > inclusos ? 'texto-alerta' : 'campo-dica'}>
+              ({acompsValidos.length} de {inclusos} inclusos{acompsValidos.length > inclusos ? ' — confira se cobrou o extra' : ''})
+            </span>
+          </span>
+          <div className="chips">
+            {opcoesAcomp.map((i) => (
+              <button key={i.id} type="button" aria-pressed={acompsValidos.includes(i.id)}
+                className={`chip${acompsValidos.includes(i.id) ? ' chip-ativo' : ''}`} onClick={() => alternarAcomp(i.id)}>
+                {acompsValidos.includes(i.id) ? '✓ ' : ''}{i.nome}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {produtoSel && !opcoesAcomp.length && (
+        <p className="campo-largo campo-dica">
+          Este produto não tem acompanhamentos na ficha técnica. Para escolher acompanhamentos, edite o produto na aba Precificação e marque os itens como "Acompanhamento".
+        </p>
+      )}
       {f.produto_id === 'outro' && (
         <Campo rotulo="Nome do produto" erro={erros.produto_nome} largo>
           <input value={f.produto_nome} onChange={(e) => mudar('produto_nome', e.target.value)} placeholder="Ex.: Combo 2 açaís" />
@@ -286,6 +332,7 @@ function FormVenda({ venda, onSalvo, onCancelar }) {
 const textoCompra = (c) => [c.item, c.fornecedor, c.categorias?.nome, c.forma_pagamento, c.observacao].join(' ');
 
 function ListaCompras() {
+  const { insumosPorId } = useDados();
   const l = useLista('compras', textoCompra);
   const [editando, setEditando] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -297,6 +344,7 @@ function ListaCompras() {
       { titulo: 'Item', valor: (c) => c.item },
       { titulo: 'Fornecedor', valor: (c) => c.fornecedor },
       { titulo: 'Categoria', valor: (c) => c.categorias?.nome || 'Sem categoria' },
+      { titulo: 'Insumo (estoque)', valor: (c) => (c.insumo_id ? insumosPorId[c.insumo_id]?.nome || '' : '') },
       { titulo: 'Quantidade', valor: (c) => Number(c.quantidade) },
       { titulo: 'Unidade', valor: (c) => c.unidade },
       { titulo: 'Valor total (R$)', valor: (c) => Number(c.valor_total) },
@@ -326,6 +374,7 @@ function ListaCompras() {
                 <span className="item-detalhe">
                   <span className="etiqueta">{c.categorias?.nome || 'Sem categoria'}</span>
                   <span>{numero(c.quantidade, 3)} {c.unidade}</span>
+                  {c.insumo_id && <span className="etiqueta etq-estoque-ok">📦 +{formatarQtd(c.insumo_quantidade, insumosPorId[c.insumo_id]?.unidade_base || c.unidade)} no estoque</span>}
                   {c.fornecedor && <span>{c.fornecedor}</span>}
                   {c.forma_pagamento && <span>{c.forma_pagamento}</span>}
                   {c.observacao && <span className="item-obs">“{c.observacao}”</span>}
@@ -354,24 +403,39 @@ function ListaCompras() {
 }
 
 function FormCompra({ compra, onSalvo, onCancelar }) {
-  const { categorias, atualizar } = useDados();
+  const { categorias, insumos, insumosPorId, atualizar } = useDados();
   const novo = !compra.id;
+  const insumoInicial = compra.insumo_id ? insumosPorId[compra.insumo_id] : null;
+  const [modo, setModo] = useState(novo ? (insumos.length ? 'insumo' : 'despesa') : compra.insumo_id ? 'insumo' : 'despesa');
   const [f, setF] = useState(() => ({
     data: compra.data || hojeISO(),
     item: compra.item || '',
     fornecedor: compra.fornecedor || '',
-    categoria_id: compra.categoria_id ? String(compra.categoria_id) : String(categorias[0]?.id ?? ''),
+    categoria_id: compra.categoria_id ? String(compra.categoria_id) : String(categorias.find((c) => c.nome === 'Insumos')?.id ?? categorias[0]?.id ?? ''),
     quantidade: paraCampo(compra.quantidade ?? 1),
-    unidade: compra.unidade || 'un',
+    unidade: compra.unidade || (insumoInicial ? insumoInicial.unidade_compra : 'un'),
     valor_total: paraCampo(compra.valor_total ?? ''),
     forma_pagamento: compra.forma_pagamento || 'Pix',
     observacao: compra.observacao || '',
+    insumo_id: compra.insumo_id ? String(compra.insumo_id) : (insumos[0] ? String(insumos[0].id) : 'novo'),
+    novo_insumo: '',
   }));
+  const [atualizarPreco, setAtualizarPreco] = useState(novo);
   const [novaCat, setNovaCat] = useState(null);
   const [erros, setErros] = useState({});
   const [salvando, setSalvando] = useState(false);
   const [erroGeral, setErroGeral] = useState('');
   const mudar = (campo, valor) => setF((a) => ({ ...a, [campo]: valor }));
+
+  const insumoSel = f.insumo_id !== 'novo' ? insumosPorId[f.insumo_id] : null;
+  // Unidades possíveis: as do mesmo tipo do insumo (peso, volume ou unidade)
+  const unidadesInsumo = insumoSel ? unidadesDaBase(insumoSel.unidade_base) : UNIDADES_COMPRA;
+  const unidadeValida = unidadesInsumo.some((u) => u.id === f.unidade) ? f.unidade : unidadesInsumo[0].id;
+
+  function escolherInsumo(id) {
+    const ins = insumosPorId[id];
+    setF((a) => ({ ...a, insumo_id: id, unidade: ins ? ins.unidade_compra : a.unidade }));
+  }
 
   async function criarCategoria() {
     const nome = (novaCat || '').trim();
@@ -388,45 +452,94 @@ function FormCompra({ compra, onSalvo, onCancelar }) {
     e.preventDefault();
     const er = {};
     if (!f.data) er.data = 'Informe a data.';
-    if (!f.item.trim()) er.item = 'Informe o que foi comprado.';
     const q = lerNumero(f.quantidade);
     if (!(q > 0)) er.quantidade = 'Quantidade deve ser maior que zero.';
     const v = lerNumero(f.valor_total);
     if (!(v >= 0) || f.valor_total === '') er.valor_total = 'Informe um valor válido (não negativo).';
     if (!f.categoria_id) er.categoria = 'Escolha uma categoria.';
-    if (!f.unidade.trim()) er.unidade = 'Informe a unidade.';
+    if (modo === 'insumo') {
+      if (f.insumo_id === 'novo' && !f.novo_insumo.trim()) er.insumo = 'Digite o nome do novo insumo.';
+    } else {
+      if (!f.item.trim()) er.item = 'Informe o que foi comprado.';
+      if (!f.unidade.trim()) er.unidade = 'Informe a unidade.';
+    }
     setErros(er);
     if (Object.keys(er).length) return;
 
-    const registro = {
-      data: f.data,
-      item: f.item.trim(),
-      fornecedor: f.fornecedor.trim() || null,
-      categoria_id: Number(f.categoria_id),
-      quantidade: q,
-      unidade: f.unidade.trim(),
-      valor_total: v,
-      forma_pagamento: f.forma_pagamento,
-      observacao: f.observacao.trim() || null,
-    };
     setSalvando(true);
-    const { error } = novo
-      ? await supabase.from('compras').insert(registro)
-      : await supabase.from('compras').update(registro).eq('id', compra.id);
-    setSalvando(false);
-    if (error) return setErroGeral(mensagemErro(error));
-    onSalvo(novo ? 'Compra registrada!' : 'Compra atualizada!');
+    try {
+      let registro = {
+        data: f.data,
+        fornecedor: f.fornecedor.trim() || null,
+        categoria_id: Number(f.categoria_id),
+        quantidade: q,
+        valor_total: v,
+        forma_pagamento: f.forma_pagamento,
+        observacao: f.observacao.trim() || null,
+      };
+      let textoExtra = '';
+      if (modo === 'insumo') {
+        const un = unidadeCompra(unidadeValida);
+        const qtdBase = q * un.fator;
+        let insumoId = Number(f.insumo_id);
+        let nomeInsumo = insumoSel?.nome;
+        const dadosPreco = { valor_pago: v, quantidade_embalagem: qtdBase, unidade_compra: un.id };
+        if (f.insumo_id === 'novo') {
+          nomeInsumo = f.novo_insumo.trim();
+          const { data, error } = await supabase.from('insumos')
+            .insert({ nome: nomeInsumo, ...dadosPreco, unidade_base: un.base }).select().single();
+          if (error) throw error;
+          insumoId = data.id;
+          textoExtra = ` Insumo "${nomeInsumo}" cadastrado.`;
+        } else if (atualizarPreco && v > 0) {
+          const { error } = await supabase.from('insumos').update(dadosPreco).eq('id', insumoId);
+          if (error) throw error;
+          textoExtra = ' Preço do insumo atualizado — produtos recalculados.';
+        }
+        registro = { ...registro, item: nomeInsumo, unidade: un.id, insumo_id: insumoId, insumo_quantidade: qtdBase };
+      } else {
+        registro = { ...registro, item: f.item.trim(), unidade: f.unidade.trim(), insumo_id: null, insumo_quantidade: null };
+      }
+      const { error } = novo
+        ? await supabase.from('compras').insert(registro)
+        : await supabase.from('compras').update(registro).eq('id', compra.id);
+      if (error) throw error;
+      onSalvo((novo ? 'Compra registrada!' : 'Compra atualizada!') + textoExtra);
+    } catch (err) {
+      setErroGeral(mensagemErro(err));
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
     <form onSubmit={salvar} noValidate className="form-grade">
       <Aviso tipo="erro">{erroGeral}</Aviso>
+      <div className="campo-largo">
+        <span className="campo-rotulo">O que você comprou?</span>
+        <div className="segmentado">
+          <button type="button" className={modo === 'insumo' ? 'ativo' : ''} onClick={() => setModo('insumo')}>📦 Insumo (vai pro estoque)</button>
+          <button type="button" className={modo === 'despesa' ? 'ativo' : ''} onClick={() => setModo('despesa')}>Outra despesa</button>
+        </div>
+      </div>
       <Campo rotulo="Data" erro={erros.data}>
         <input type="date" value={f.data} onChange={(e) => mudar('data', e.target.value)} />
       </Campo>
-      <Campo rotulo="Item" erro={erros.item}>
-        <input value={f.item} onChange={(e) => mudar('item', e.target.value)} placeholder="Ex.: Balde de açaí 10 kg" />
-      </Campo>
+      {modo === 'insumo' ? (
+        <Campo rotulo="Insumo" erro={erros.insumo}>
+          <select value={f.insumo_id} onChange={(e) => escolherInsumo(e.target.value)}>
+            {insumos.map((i) => <option key={i.id} value={i.id}>{i.nome}</option>)}
+            <option value="novo">+ Novo insumo…</option>
+          </select>
+          {f.insumo_id === 'novo' && (
+            <input value={f.novo_insumo} onChange={(e) => mudar('novo_insumo', e.target.value)} placeholder="Nome do insumo (ex.: Paçoca)" aria-label="Nome do novo insumo" />
+          )}
+        </Campo>
+      ) : (
+        <Campo rotulo="Item" erro={erros.item}>
+          <input value={f.item} onChange={(e) => mudar('item', e.target.value)} placeholder="Ex.: Conta de luz" />
+        </Campo>
+      )}
       <Campo rotulo="Fornecedor">
         <input value={f.fornecedor} onChange={(e) => mudar('fornecedor', e.target.value)} placeholder="Opcional" />
       </Campo>
@@ -447,13 +560,27 @@ function FormCompra({ compra, onSalvo, onCancelar }) {
           </div>
         )}
       </Campo>
-      <Campo rotulo="Quantidade" erro={erros.quantidade}>
-        <CampoNumero value={f.quantidade} onChange={(v) => mudar('quantidade', v)} />
-      </Campo>
-      <Campo rotulo="Unidade" erro={erros.unidade}>
-        <input list="unidades" value={f.unidade} onChange={(e) => mudar('unidade', e.target.value)} />
-        <datalist id="unidades">{UNIDADES_LIVRES.map((u) => <option key={u} value={u} />)}</datalist>
-      </Campo>
+      {modo === 'insumo' ? (
+        <Campo rotulo="Quantidade comprada" erro={erros.quantidade}
+          dica={lerNumero(f.quantidade) > 0 ? `Entra no estoque: +${formatarQtd(lerNumero(f.quantidade) * unidadeCompra(unidadeValida).fator, unidadeCompra(unidadeValida).base)}` : undefined}>
+          <div className="linha-inline">
+            <CampoNumero value={f.quantidade} onChange={(v) => mudar('quantidade', v)} />
+            <select value={unidadeValida} onChange={(e) => mudar('unidade', e.target.value)} aria-label="Unidade">
+              {unidadesInsumo.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
+          </div>
+        </Campo>
+      ) : (
+        <>
+          <Campo rotulo="Quantidade" erro={erros.quantidade}>
+            <CampoNumero value={f.quantidade} onChange={(v) => mudar('quantidade', v)} />
+          </Campo>
+          <Campo rotulo="Unidade" erro={erros.unidade}>
+            <input list="unidades" value={f.unidade} onChange={(e) => mudar('unidade', e.target.value)} />
+            <datalist id="unidades">{UNIDADES_LIVRES.map((u) => <option key={u} value={u} />)}</datalist>
+          </Campo>
+        </>
+      )}
       <Campo rotulo="Valor total" erro={erros.valor_total}>
         <CampoNumero prefixo="R$" value={f.valor_total} onChange={(v) => mudar('valor_total', v)} placeholder="0,00" />
       </Campo>
@@ -462,8 +589,14 @@ function FormCompra({ compra, onSalvo, onCancelar }) {
           {FORMAS_PAGAMENTO.map((c) => <option key={c}>{c}</option>)}
         </select>
       </Campo>
+      {modo === 'insumo' && f.insumo_id !== 'novo' && (
+        <label className="campo-largo checkbox">
+          <input type="checkbox" checked={atualizarPreco} onChange={(e) => setAtualizarPreco(e.target.checked)} />
+          <span>Atualizar o preço do insumo com esta compra (recalcula o custo dos produtos)</span>
+        </label>
+      )}
       <Campo rotulo="Observação" largo>
-        <input value={f.observacao} onChange={(e) => mudar('observacao', e.target.value)} placeholder="Opcional" />
+        <input value={f.observacao} onChange={(e) => mudar('observacao', e.target.value)} placeholder="Opcional (ex.: nº da nota)" />
       </Campo>
       <div className="form-acoes">
         <button type="button" className="btn btn-fantasma" onClick={onCancelar}>Cancelar</button>

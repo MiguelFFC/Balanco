@@ -8,7 +8,7 @@ export const useDados = () => useContext(Ctx);
 // e oferece "atualizar()" para recarregar tudo depois de uma alteração.
 export function DadosProvider({ children }) {
   const [estado, setEstado] = useState({
-    categorias: [], insumos: [], produtos: [], composicao: [], config: null,
+    categorias: [], insumos: [], produtos: [], composicao: [], estoque: [], config: null,
   });
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
@@ -24,17 +24,18 @@ export function DadosProvider({ children }) {
         if (error) throw error;
       }
       const tudo = (t, ordem) => buscarTodos(() => supabase.from(t).select('*').order(ordem));
-      const [categorias, insumos, produtos, composicao, config] = await Promise.all([
+      const [categorias, insumos, produtos, composicao, estoque, config] = await Promise.all([
         tudo('categorias', 'nome'),
         tudo('insumos', 'nome'),
         tudo('produtos', 'nome'),
         tudo('produto_insumos', 'id'),
+        tudo('estoque_insumos', 'insumo_id'),
         supabase.from('configuracoes').select('*').maybeSingle().then(({ data, error }) => {
           if (error) throw error;
           return data;
         }),
       ]);
-      setEstado({ categorias, insumos, produtos, composicao, config });
+      setEstado({ categorias, insumos, produtos, composicao, estoque, config });
       setErro('');
     } catch (e) {
       setErro(mensagemErro(e));
@@ -54,7 +55,8 @@ export function DadosProvider({ children }) {
 
   const valor = useMemo(() => {
     const insumosPorId = Object.fromEntries(estado.insumos.map((i) => [i.id, i]));
-    return { ...estado, insumosPorId, carregando, erro, versao, atualizar };
+    const estoquePorId = Object.fromEntries(estado.estoque.map((e) => [e.insumo_id, e]));
+    return { ...estado, insumosPorId, estoquePorId, carregando, erro, versao, atualizar };
   }, [estado, carregando, erro, versao, atualizar]);
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;

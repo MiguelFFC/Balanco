@@ -26,7 +26,7 @@ function agrupar(linhas, chave, valor) {
 }
 
 export default function Balanco() {
-  const { versao } = useDados();
+  const { versao, insumosPorId } = useDados();
   const p = usePeriodo('mes');
   const vendas = useLancamentos('vendas', p.inicio, p.fim, versao);
   const compras = useLancamentos('compras', p.inicio, p.fim, versao);
@@ -69,8 +69,13 @@ export default function Balanco() {
       categorias: agrupar(C, (c) => c.categorias?.nome || 'Sem categoria', (c) => Number(c.valor_total)),
       canais: agrupar(V, (v) => v.canal, (v) => Number(v.valor_recebido)),
       produtos: agrupar(V, (v) => v.produto_nome, (v) => Number(v.quantidade)).slice(0, 8),
+      acompanhamentos: agrupar(
+        V.flatMap((v) => (v.acompanhamentos || []).map((id) => ({ id, qtd: Number(v.quantidade) }))),
+        (a) => insumosPorId[a.id]?.nome || 'Insumo excluído',
+        (a) => a.qtd
+      ).slice(0, 10),
     };
-  }, [vendas.linhas, compras.linhas, p.inicio, p.fim]);
+  }, [vendas.linhas, compras.linhas, p.inicio, p.fim, insumosPorId]);
 
   return (
     <section>
@@ -113,8 +118,12 @@ export default function Balanco() {
               <BarrasHorizontais dados={r.canais} formato={moeda} />
             </Grafico>
 
-            <Grafico titulo="Produtos mais vendidos (unidades)" largo vazio={!r.produtos.length}>
+            <Grafico titulo="Produtos mais vendidos (unidades)" vazio={!r.produtos.length}>
               <BarrasHorizontais dados={r.produtos} formato={(v) => `${numero(v)} un`} />
+            </Grafico>
+
+            <Grafico titulo="Acompanhamentos mais pedidos (porções)" vazio={!r.acompanhamentos.length}>
+              <BarrasHorizontais dados={r.acompanhamentos} formato={(v) => `${numero(v)}`} />
             </Grafico>
           </div>
         </>

@@ -206,9 +206,9 @@ input:focus, select:focus { outline: 2px solid var(--roxo-600); outline-offset: 
 .tabela-comp { width: 100%; border-collapse: collapse; font-size: 0.87rem; margin-top: 6px; }
 .tabela-comp th, .tabela-comp td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--borda); }
 .tabela-comp td:last-child, .tabela-comp th:last-child { text-align: right; }
-.comp-linha { display: grid; grid-template-columns: 1fr 130px 90px auto; gap: 8px; align-items: center; }
+.comp-linha { display: grid; grid-template-columns: 1fr 150px 120px 80px auto; gap: 8px; align-items: center; }
 .comp-custo { text-align: right; font-variant-numeric: tabular-nums; color: var(--texto-2); }
-.resumo-produto { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; background: var(--roxo-50); border-radius: 12px; padding: 12px; }
+.resumo-produto { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; background: var(--roxo-50); border-radius: 12px; padding: 12px; }
 .resumo-produto div { display: flex; flex-direction: column; }
 .resumo-produto span { font-size: 0.8rem; color: var(--texto-2); }
 .sugestao { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -219,6 +219,25 @@ input:focus, select:focus { outline: 2px solid var(--roxo-600); outline-offset: 
 .sugestao-cartao small { color: var(--texto-2); }
 .previa { background: var(--roxo-50); border-radius: 10px; padding: 10px 12px; display: block; }
 .previa .nota { margin: 4px 0 0; }
+
+/* ---------- Estoque e acompanhamentos ---------- */
+.etq-estoque-ok { background: #e3f4ea; color: #145a36; }
+.etq-estoque-baixo { background: #fff1d6; color: #7a4f00; }
+.etq-estoque-zerado { background: #fbe9e7; color: #8e2318; }
+.etq-acomp { background: #efe7ff; color: #4b2a9b; font-size: 0.75rem; }
+.item-estoque.estoque-baixo { border-left: 4px solid #e6a400; }
+.item-estoque.estoque-zerado { border-left: 4px solid var(--vermelho); }
+.item-acomps { font-size: 0.85rem; color: var(--roxo-700); }
+.texto-alerta { color: #9a5b00; font-weight: 600; }
+.link-pq { font-size: 0.83rem; padding: 0; }
+.nota-produto { margin: 0 0 4px; }
+.checkbox { flex-direction: row; align-items: center; gap: 10px; font-size: 0.9rem; }
+.checkbox input { width: 20px; height: 20px; min-height: 0; flex: none; }
+.aba { position: relative; }
+.aba-badge {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: #e6a400; color: #2e1a00; font-size: 0.72rem; font-weight: 800; margin-left: 4px;
+}
 
 /* ---------- Modal ---------- */
 .modal-fundo {
@@ -264,8 +283,12 @@ input:focus, select:focus { outline: 2px solid var(--roxo-600); outline-offset: 
   .item-valor { grid-column: 2; grid-row: 1; }
   .item-valor-longo { grid-column: 1 / -1; grid-row: auto; text-align: left; font-size: 0.9rem; color: var(--roxo-800); }
   .item-acoes { grid-column: 1 / -1; justify-content: flex-end; margin-top: -6px; }
-  .comp-linha { grid-template-columns: 1fr 110px auto; }
+  .comp-linha { grid-template-columns: 1fr 1fr auto; padding-bottom: 8px; border-bottom: 1px solid var(--borda); }
+  .comp-linha > select:first-child { grid-column: 1 / -1; }
   .comp-custo { display: none; }
+  .aba { flex-direction: column; display: flex; align-items: center; gap: 0; font-size: 0.75rem; padding: 6px 2px; border-radius: 12px; }
+  .aba-icone { font-size: 1.1rem; }
+  .aba-badge { position: absolute; top: 2px; right: 6px; margin: 0; }
   .modal-fundo { padding: 0; align-items: stretch; }
   .modal { border-radius: 0; min-height: 100%; }
   .barra-linha .btn { flex: 1; }

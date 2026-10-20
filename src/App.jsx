@@ -5,12 +5,15 @@ import Login from './components/Login';
 import Lancamentos from './components/Lancamentos';
 import Balanco from './components/Balanco';
 import Precificacao from './components/Precificacao';
+import Estoque from './components/Estoque';
+import { situacaoEstoque } from './lib/calculos';
 import { Aviso, Carregando } from './components/ui';
 
 const ABAS = [
   { id: 'balanco', nome: 'Balanço', icone: '📊' },
   { id: 'lancamentos', nome: 'Lançamentos', icone: '🧾' },
   { id: 'precificacao', nome: 'Precificação', icone: '🏷️' },
+  { id: 'estoque', nome: 'Estoque', icone: '📦' },
 ];
 
 export default function App() {
@@ -52,7 +55,10 @@ function Painel({ email }) {
   const [aba, setAba] = useState(() => {
     try { return localStorage.getItem('aba') || 'balanco'; } catch { return 'balanco'; }
   });
-  const { carregando, erro, config, atualizar } = useDados();
+  const { carregando, erro, config, atualizar, insumos, estoquePorId } = useDados();
+  const alertasEstoque = insumos.filter(
+    (i) => estoquePorId[i.id] && situacaoEstoque(Number(estoquePorId[i.id].estoque), Number(i.estoque_minimo)).id !== 'ok'
+  ).length;
   const [limpando, setLimpando] = useState(false);
   const [msg, setMsg] = useState(null);
 
@@ -82,7 +88,8 @@ function Painel({ email }) {
         <nav className="abas" aria-label="Áreas">
           {ABAS.map((a) => (
             <button key={a.id} type="button" className={`aba${aba === a.id ? ' aba-ativa' : ''}`} onClick={() => trocarAba(a.id)}>
-              <span aria-hidden="true">{a.icone}</span> {a.nome}
+              <span aria-hidden="true" className="aba-icone">{a.icone}</span> <span className="aba-nome">{a.nome}</span>
+              {a.id === 'estoque' && alertasEstoque > 0 && <span className="aba-badge" title="Insumos precisando repor">{alertasEstoque}</span>}
             </button>
           ))}
         </nav>
@@ -110,6 +117,7 @@ function Painel({ email }) {
             {aba === 'balanco' && <Balanco />}
             {aba === 'lancamentos' && <Lancamentos />}
             {aba === 'precificacao' && <Precificacao />}
+            {aba === 'estoque' && <Estoque />}
           </>
         )}
       </main>

@@ -13,14 +13,6 @@ export const custoUnitario = (insumo) =>
     ? Number(insumo.valor_pago) / Number(insumo.quantidade_embalagem)
     : 0;
 
-// Custo do produto sempre calculado com o preço ATUAL dos insumos:
-// alterou o insumo, todos os produtos que o usam mudam juntos.
-export function custoProduto(produtoId, composicao, insumosPorId) {
-  return composicao
-    .filter((c) => c.produto_id === produtoId)
-    .reduce((soma, c) => soma + Number(c.quantidade) * custoUnitario(insumosPorId[c.insumo_id]), 0);
-}
-
 // Preço para atingir a margem desejada (sobre o preço de venda),
 // já considerando uma taxa percentual (iFood/cartão) se informada.
 export function precoSugerido(custo, margemPct, taxaPct = 0) {
@@ -45,3 +37,41 @@ export function analisarPreco(preco, custo, taxaPct) {
 export const CANAIS = ['iFood', 'WhatsApp', 'Balcão', 'Outros'];
 export const FORMAS_PAGAMENTO = ['Pix', 'Dinheiro', 'Cartão de crédito', 'Cartão de débito', 'Boleto', 'Transferência', 'iFood (pago no app)', 'Outros'];
 export const UNIDADES_LIVRES = ['un', 'kg', 'g', 'L', 'ml', 'pct', 'cx', 'balde', 'fardo', 'mês', 'serviço'];
+
+// Unidades em que um insumo pode ser comprado/contado, conforme a unidade base
+export const unidadesDaBase = (base) => UNIDADES_COMPRA.filter((u) => u.base === base);
+
+// Custos do produto separados em fixo (copo, tampa, açaí...) e acompanhamentos.
+// "medio" considera a quantidade de acompanhamentos inclusos pela média de custo deles.
+export function custosProduto(produto, composicao, insumosPorId) {
+  const itens = composicao.filter((c) => c.produto_id === produto.id);
+  const custoItem = (c) => Number(c.quantidade) * custoUnitario(insumosPorId[c.insumo_id]);
+  const fixo = itens.filter((c) => c.tipo !== 'acompanhamento').reduce((s, c) => s + custoItem(c), 0);
+  const acomps = itens.filter((c) => c.tipo === 'acompanhamento').map(custoItem).sort((a, b) => a - b);
+  const n = Math.min(Number(produto.qtd_acompanhamentos ?? 0), acomps.length);
+  const media = acomps.length ? acomps.reduce((s, v) => s + v, 0) / acomps.length : 0;
+  const soma = (lista) => lista.reduce((s, v) => s + v, 0);
+  return {
+    fixo,
+    qtdAcomp: n,
+    totalAcomps: acomps.length,
+    medio: fixo + n * media,
+    minimo: fixo + soma(acomps.slice(0, n)),
+    maximo: fixo + soma(acomps.slice(acomps.length - n)),
+  };
+}
+
+// Mostra uma quantidade na unidade mais amigável (g -> kg, ml -> L)
+export function formatarQtd(valor, base) {
+  const v = Number(valor) || 0;
+  const fmt = (x, casas) => x.toLocaleString('pt-BR', { maximumFractionDigits: casas });
+  if (base === 'g' && Math.abs(v) >= 1000) return `${fmt(v / 1000, 2)} kg`;
+  if (base === 'ml' && Math.abs(v) >= 1000) return `${fmt(v / 1000, 2)} L`;
+  return `${fmt(v, base === 'un' ? 0 : 1)} ${base}`;
+}
+
+export function situacaoEstoque(estoque, minimo) {
+  if (estoque <= 0) return { id: 'zerado', nome: 'Sem estoque' };
+  if (minimo > 0 && estoque < minimo) return { id: 'baixo', nome: 'Estoque baixo' };
+  return { id: 'ok', nome: 'OK' };
+}
